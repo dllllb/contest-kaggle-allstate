@@ -5,9 +5,10 @@ from sklearn.model_selection import cross_val_score, train_test_split, KFold
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.metrics import make_scorer
 from sklearn.pipeline import make_pipeline
-from xgboost import XGBClassifier, XGBRegressor
+from sklearn.preprocessing import FunctionTransformer
+from xgboost import XGBRegressor
 
-import transformer as tr
+from transformer import target_mean_encoder, high_cardinality_zeroing
 
 
 def update_model_stats(stats_file, params, results):
@@ -159,15 +160,18 @@ def validate(params):
     category_encoding = params['category_encoding']
     
     if category_encoding == 'onehot':
+        df2dict = FunctionTransformer(
+            lambda x: x.to_dict(orient='records'), validate=False)
+
         transf = make_pipeline(
-            tr.high_cardinality_zeroing(threshold=50),
-            tr.df2dict(),
+            high_cardinality_zeroing(threshold=50),
+            df2dict,
             DictVectorizer(sparse=False)
         )
     elif category_encoding == 'target_mean':
-        transf = tr.target_mean_encoder(size_threshold=20)
+        transf = target_mean_encoder(size_threshold=20)
     elif category_encoding == 'none':
-        pass
+        transf = None
     else:
         raise AssertionError(f'unknown category encoding type: {category_encoding}')
 
@@ -182,7 +186,7 @@ def validate(params):
     if params['target_log']:
         est = TargetTransfRegressor(est, np.log, np.exp)
         
-    if category_encoding == 'none':
+    if transf is None:
         pl = est
     else:
         pl = make_pipeline(transf, est)

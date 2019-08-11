@@ -67,23 +67,6 @@ def high_cardinality_zeroing(threshold=1, top=10000, placeholder='zeroed', colum
     return TargetCategoryEncoder(buider, columns, n_jobs)
 
 
-def build_count_encoder(column, __):
-    entries = column.replace(np.nan, 'nan').value_counts()
-    entries = entries.sort_values(ascending=False).index
-    mapping = dict(zip(entries, range(len(entries))))
-    return partial(map_encoder, mapping=mapping)
-
-
-def count_encoder(columns=None, n_jobs=1):
-    return TargetCategoryEncoder(build_count_encoder, columns, n_jobs)
-
-
-def df2dict():
-    from sklearn.preprocessing import FunctionTransformer
-    return FunctionTransformer(
-        lambda x: x.to_dict(orient='records'), validate=False)
-
-
 def build_categorical_feature_encoder_mean(column, target, size_threshold):
     global_mean = target.mean()
     col_dna = column.fillna('nan')
