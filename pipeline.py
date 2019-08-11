@@ -5,10 +5,9 @@ from sklearn.model_selection import cross_val_score, train_test_split, KFold
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.metrics import make_scorer
 from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import FunctionTransformer
+from xgboost import XGBClassifier, XGBRegressor
 
-import ds_tools.dstools.ml.transformers as tr
-import ds_tools.dstools.ml.xgboost_tools as xgb
+import transformer as tr
 
 
 def update_model_stats(stats_file, params, results):
@@ -112,26 +111,33 @@ def pred_vs_true(est, path):
     
 def init_xbg_est(params):
     keys = {
-        'eta',
-        'num_rounds',
+        'learning_rate',
+        'n_estimators',
         'max_depth',
         'min_child_weight',
         'subsample',
         'colsample_bytree',
-        'num_es_rounds',
-        'es_share',
     }
     
-    obj = "reg:linear" if params['objective'] != 'poisson' else 'count:poisson'
+    obj = "reg:linear" if params['target_distr'] != 'poisson' else 'count:poisson'
+
     xgb_params = {
         "objective": obj,
-        "eval_func": mape_evalerror_exp,
-        "verbose": 120,
-        "ybin": ybin,
         **{k: v for k, v in params.items() if k in keys},
     }
-    
-    return xgb.XGBoostClassifier(**xgb_params)
+
+    class XGBC(XGBRegressor):
+        def fit(self, x, y, **kwargs):
+            f_train, f_val, t_train, t_val = train_test_split(x, y, test_size=params['es_share'])
+            super().fit(
+                f_train,
+                t_train,
+                eval_set=[(f_val, t_val)],
+                eval_metric=mape_evalerror_exp,
+                early_stopping_rounds=params['num_es_rounds'],
+                verbose=120)
+
+    return XGBC(**xgb_params)
 
 
 def init_h2o_est(params): 
@@ -145,7 +151,7 @@ def init_h2o_est(params):
         'col_sample_rate_per_tree': params['colsample_bytree']
     }
     
-    import ds_tools.dstools.h2o.sklearn_tools as h2
+    import h2o_est as h2
     return h2.H2ODecorator('gbm', h2o_gbm_params)
 
 
@@ -158,18 +164,20 @@ def validate(params):
             tr.df2dict(),
             DictVectorizer(sparse=False)
         )
-    elif category_encoding == 'count':
-        transf = tr.count_encoder()
     elif category_encoding == 'target_mean':
-        transf = target_mean_encoder(size_threshold=20)
-    elif category_encoding == 'empytical_bayes':
-        transf = tr.empirical_bayes_encoder_normal_distr()
+        transf = tr.target_mean_encoder(size_threshold=20)
+    elif category_encoding == 'none':
+        pass
+    else:
+        raise AssertionError(f'unknown category encoding type: {category_encoding}')
 
     est_type = params['est_type']
     if est_type == 'h2o':
         est = init_h2o_est(params)
     elif est_type == 'xgb':
         est = init_xbg_est(params)
+    else:
+        raise AssertionError(f'unknown estimator type: {est_type}')
     
     if params['target_log']:
         est = TargetTransfRegressor(est, np.log, np.exp)
@@ -188,7 +196,7 @@ def test_validate():
         'min_child_weight': 6,
         'subsample': .1,
         'colsample_bytree': .2,
-        'category_encoding': "empytical_bayes",
+        'category_encoding': 'target_mean',
         'num_rounds': 10,
         'est_type': 'xgb',
         'num_es_rounds': None,
