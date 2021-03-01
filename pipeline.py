@@ -5,6 +5,7 @@ from sklearn.model_selection import cross_val_score, train_test_split, KFold
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.metrics import make_scorer
 from sklearn.pipeline import make_pipeline
+from sklearn.compose import TransformedTargetRegressor
 from sklearn.preprocessing import FunctionTransformer
 from xgboost import XGBRegressor
 
@@ -36,20 +37,6 @@ def run_experiment(evaluator, params, stats_file):
     exec_time = time.time() - start
     update_model_stats(stats_file, params, {**scores, 'exec-time-sec': exec_time})
 
-
-class TargetTransfRegressor(BaseEstimator, RegressorMixin):
-    def __init__(self, base_est, transf_to, transf_from):
-        self.base_est = base_est
-        self.transf_to = transf_to
-        self.transf_from = transf_from
-
-    def fit(self, X, y):
-        self.base_est.fit(X, self.transf_to(y))
-        return self
-
-    def predict(self, X):
-        return self.transf_from(self.base_est.predict(X))
-    
     
 def mape(y_true, y_pred):
     return np.average(np.abs(y_pred - y_true), axis=0)
@@ -184,7 +171,7 @@ def validate(params):
         raise AssertionError(f'unknown estimator type: {est_type}')
     
     if params['target_log']:
-        est = TargetTransfRegressor(est, np.log, np.exp)
+        est = TransformedTargetRegressor(est, func=np.log, inverse_func=np.exp)
         
     if transf is None:
         pl = est
